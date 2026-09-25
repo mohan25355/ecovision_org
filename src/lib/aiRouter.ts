@@ -8,6 +8,7 @@ import {
 import { networkStateEngine } from "@/services/networkState";
 import { checkOllamaStatus, generateOllamaChat, generateOllamaVision } from "@/lib/ollama";
 import { LOCAL_PLANT_DATABASE, searchLocalKnowledge } from "@/knowledge/plantDatabase";
+import { searchLocalEcoKnowledge } from "@/services/ecoKnowledgeEngine";
 import { saveRecord } from "@/lib/db";
 
 export interface AIRouterResult<T> {
@@ -133,15 +134,66 @@ export class AIRouter {
     }
 
     // 2. OFFLINE MODE -> Check local knowledge RAG context first
-    console.log("[AIRouter Chat] Mode: OFFLINE -> Searching Local Knowledge Base");
-    const localMatch = searchLocalKnowledge(plantContext?.commonName || lastUserMessage);
+    console.log("[AIRouter Chat] Mode: OFFLINE -> Searching Local Knowledge & Garden State");
+    const queryTerm = plantContext?.commonName || plantContext?.scientificName || lastUserMessage;
+    const ecoMatches = await searchLocalEcoKnowledge(queryTerm);
+    const localMatch = searchLocalKnowledge(queryTerm);
+
+    // Retrieve User Plant Twin & History Context from IndexedDB (Phase 9)
+    let userGardenContext = "";
+    try {
+      const userPlants = await getAllRecords<PlantRecord>("plants");
+      const matchedUserPlant = userPlants.find(p => 
+        queryTerm.toLowerCase().includes(p.nickname.toLowerCase()) ||
+        queryTerm.toLowerCase().includes(p.commonName.toLowerCase()) ||
+        queryTerm.toLowerCase().includes((p.scientificName || "").toLowerCase())
+      );
+
+      if (matchedUserPlant) {
+        const scans = await getAllRecords("plant_scans");
+        const plantScans = scans.filter((s: any) => s.plantId === matchedUserPlant.id || s.commonName === matchedUserPlant.commonName);
+        const latestScan = plantScans[plantScans.length - 1];
+
+        const checkIns = await getAllRecords("check_ins");
+        const plantCheckIns = checkIns.filter((c: any) => c.plantId === matchedUserPlant.id);
+        const latestCheckIn = plantCheckIns[plantCheckIns.length - 1];
+
+        const sensors = await getAllRecords("sensor_history");
+        const latestSensor = sensors[sensors.length - 1];
+
+        userGardenContext = `
+User Garden Plant Twin History for "${matchedUserPlant.nickname}" (${matchedUserPlant.commonName}):
+- Health Status: ${matchedUserPlant.status}, Health Score: ${matchedUserPlant.healthScore}%
+- Location: ${matchedUserPlant.location || 'Indoor Garden'}
+- Notes: ${matchedUserPlant.notes || 'No recent notes'}
+${latestScan ? `- Latest Scan Result: Identified as ${latestScan.commonName || matchedUserPlant.commonName} (Health Score: ${latestScan.healthScore || latestScan.confidence}%)` : ''}
+${latestCheckIn ? `- Latest Check-in Notes: ${latestCheckIn.notes || 'Checked'} (Watered: ${latestCheckIn.watered ? 'Yes' : 'No'})` : ''}
+${latestSensor ? `- EcoSense IoT Readings: Temp: ${latestSensor.temperature}°C, Moisture: ${latestSensor.moisture}%, Humidity: ${latestSensor.humidity}%` : ''}
+`;
+      }
+    } catch (dbErr) {
+      console.warn("RAG User garden state query error:", dbErr);
+    }
     
     // Detect Multilingual Tamil / Tanglish keywords
     const isTanglishOrTamil = /thanni|water|leaf|maram|sedi|spray|poochi|sunlight|soil|pot|man/i.test(lastUserMessage) && 
                              /indha|idhuku|evlo|yepdi|vanganum|venum|poodanom/i.test(lastUserMessage);
 
     let ragContextText = "";
-    if (localMatch) {
+    if (ecoMatches && ecoMatches.length > 0) {
+      const p = ecoMatches[0];
+      ragContextText = `
+Verified Plant Knowledge for ${p.commonNames.join(", ")} (${p.scientificName}):
+- Taxonomy: Family ${p.taxonomy.family}, Genus ${p.taxonomy.genus}, Species ${p.taxonomy.species}
+- Description: ${p.description}
+- Traits: Leaf Type: ${p.traits.leafType}, Venation: ${p.traits.venation}, Habit: ${p.traits.growthHabit}
+- Care: Water: ${p.care.water}; Light: ${p.care.light}; Temp: ${p.care.temperature}; Soil: ${p.care.soil}
+- Diseases: ${p.diseases.map(d => `${d.name} (Cause: ${d.cause}, Symptoms: ${d.symptoms.join(", ")}, Treatment: ${d.management})`).join("; ")}
+- Pests: ${p.pests.map(pst => `${pst.name} (Symptoms: ${pst.symptoms.join(", ")}, Management: ${pst.management})`).join("; ")}
+- Uses: Food: ${p.uses.food.join(", ")}; Medicinal: ${p.uses.medicinal.join(", ")}; Environmental: ${p.uses.environmental.join(", ")}
+${userGardenContext}
+`;
+    } else if (localMatch) {
       ragContextText = `
 Verified Plant Information for ${localMatch.commonName} (${localMatch.scientificName}):
 - Family: ${localMatch.family}
@@ -151,7 +203,10 @@ Verified Plant Information for ${localMatch.commonName} (${localMatch.scientific
 - Safety: Toxicity: ${localMatch.safety.toxicity}, Edible: ${localMatch.safety.edible}, Pet Safe: ${localMatch.safety.petSafe}
 - Medicinal Uses: ${localMatch.uses.medicinal.join("; ")}
 - Agricultural Uses: ${localMatch.uses.agricultural.join("; ")}
+${userGardenContext}
 `;
+    } else if (userGardenContext) {
+      ragContextText = userGardenContext;
     }
 
     // Check Ollama status
@@ -172,7 +227,7 @@ Guidelines:
       if (res.success && res.content) {
         return {
           success: true,
-          data: res.content + "\n\n*(Powered by Local AI — Ollama)*",
+          data: res.content + "\n\n*(Powered by Local AI — Ollama & EcoKnowledge Engine)*",
           source: 'LOCAL_OLLAMA_AI'
         };
       }
@@ -181,19 +236,30 @@ Guidelines:
     // 3. OFFLINE KNOWLEDGE ENGINE FALLBACK (Without Ollama)
     console.log("[AIRouter Chat] Using Local Knowledge Engine Fallback");
     let fallbackAnswer = "";
-    if (localMatch) {
+    if (ecoMatches && ecoMatches.length > 0) {
+      const p = ecoMatches[0];
+      fallbackAnswer = `🌿 **${p.commonNames[0] || p.scientificName}** (*${p.scientificName}*)\n\n` +
+        `**Family:** ${p.taxonomy.family} (${p.taxonomy.genus})\n` +
+        `**Description:** ${p.description}\n\n` +
+        `**Care Guidance:**\n` +
+        `• Water: ${p.care.water}\n` +
+        `• Light: ${p.care.light}\n` +
+        `• Soil: ${p.care.soil}\n\n` +
+        (p.diseases.length > 0 ? `**Common Diseases:** ${p.diseases.map(d => d.name).join(", ")}\n\n` : "") +
+        `*(Retrieved from Local EcoKnowledge Engine)*`;
+    } else if (localMatch) {
       fallbackAnswer = `🌿 **${localMatch.commonName}** (*${localMatch.scientificName}*)\n\n` +
         `**Care & Growth:** ${localMatch.careInstructions}\n` +
         `**Watering:** ${localMatch.habitat.water}\n` +
         `**Light Requirements:** ${localMatch.habitat.light}\n` +
         `**Safety Notice:** ${localMatch.safety.toxicity}`;
     } else {
-      fallbackAnswer = `🌿 **Offline Plant Knowledge Assistant**\n\n` +
+      fallbackAnswer = `🌿 **EcoKnowledge Plant Assistant**\n\n` +
         `Currently operating in offline mode. Here are key plant care guidelines:\n` +
         `• Water when the top inch of soil feels dry.\n` +
         `• Provide bright, indirect light for optimal photosynthesis.\n` +
         `• Ensure pots have functioning bottom drainage holes.\n\n` +
-        `*(Powered by Local Knowledge Base)*`;
+        `*(Powered by Local EcoKnowledge Engine)*`;
     }
 
     return {

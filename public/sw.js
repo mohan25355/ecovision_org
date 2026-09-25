@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ecovision-cache-v1';
+const CACHE_NAME = 'ecovision-cache-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -6,7 +6,7 @@ const ASSETS_TO_CACHE = [
   '/favicon.ico'
 ];
 
-// Install event - cache core shell
+// Install event - Cache core application shell
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -16,14 +16,14 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activate event - cleanup old caches
+// Activate event - Clean up legacy caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cache) => {
           if (cache !== CACHE_NAME) {
-            console.log('[Service Worker] Deleting old cache:', cache);
+            console.log('[Service Worker] Purging old cache:', cache);
             return caches.delete(cache);
           }
         })
@@ -32,21 +32,47 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch event - Cache-first with Network Fallback strategy for navigation & assets
+// Fetch event - Cache-first for local static assets with navigation fallback to index.html for SPA routes
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests or browser extension/external requests
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
 
-  // Exclude Supabase or Ollama API endpoints from SW caching
-  if (url.pathname.includes('/functions/v1') || url.port === '11434') {
+  // Never cache external APIs, Supabase cloud endpoints or local Ollama port 11434
+  if (
+    url.pathname.includes('/functions/v1') || 
+    url.port === '11434' ||
+    url.hostname.includes('supabase.co') ||
+    url.hostname.includes('gbif.org')
+  ) {
     return;
   }
 
+  // Handle SPA Navigation requests (HTML navigation)
+  if (event.request.mode === 'navigate' || event.request.headers.get('accept')?.includes('text/html')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const responseClone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', responseClone));
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          // Serve offline SPA shell fallback
+          return caches.match('/index.html').then((cachedHtml) => {
+            return cachedHtml || caches.match('/');
+          });
+        })
+    );
+    return;
+  }
+
+  // Handle static assets (JS, CSS, images, fonts)
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
-        // Return cached version & update cache in background
+        // Fetch background update for cache freshness if online
         fetch(event.request).then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
@@ -65,10 +91,8 @@ self.addEventListener('fetch', (event) => {
         });
         return networkResponse;
       }).catch(() => {
-        // If offline and request is for a HTML page, return app shell index.html
-        if (event.request.headers.get('accept')?.includes('text/html')) {
-          return caches.match('/index.html');
-        }
+        // If JS/CSS chunk failed offline, return gracefully
+        return new Response('', { status: 404, statusText: 'Offline Asset Unavailable' });
       });
     })
   );

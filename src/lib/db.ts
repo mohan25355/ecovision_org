@@ -7,6 +7,7 @@ export interface BaseRecord {
   createdAt: string;
   updatedAt: string;
   syncStatus: SyncStatus;
+  version?: number;
   [key: string]: any;
 }
 
@@ -74,8 +75,38 @@ export interface SensorRecord extends BaseRecord {
   recordedAt: string;
 }
 
+export interface LearningRecord extends BaseRecord {
+  plantId: string;
+  mode: 'beginner' | 'student' | 'advanced' | 'research';
+  sectionsViewed: string[];
+  quizAttempts: Array<{
+    score: number;
+    total: number;
+    timestamp: string;
+  }>;
+  progress: number; // 0-100
+  completedAt?: string;
+}
+
+export interface CareRecord extends BaseRecord {
+  plantId: string;
+  actionType: 'water' | 'fertilize' | 'prune' | 'repot' | 'clean' | 'mist';
+  notes?: string;
+  performedAt: string;
+}
+
+export interface TreatmentRecord extends BaseRecord {
+  plantId: string;
+  diseaseName: string;
+  treatmentType: 'chemical' | 'natural' | 'cultural';
+  activeIngredient?: string;
+  dosage?: string;
+  applicationNotes?: string;
+  status: 'active' | 'completed' | 'resolved';
+}
+
 const DB_NAME = 'EcoVisionDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORES = [
   'plants',
@@ -87,6 +118,10 @@ const STORES = [
   'chat_history',
   'pending_actions',
   'offline_scans',
+  'learning_records',
+  'snapshots',
+  'care_records',
+  'treatment_records',
   'sync_metadata'
 ];
 
@@ -127,6 +162,7 @@ export async function saveRecord<T extends Partial<BaseRecord>>(
     createdAt: record.createdAt || now,
     updatedAt: now,
     syncStatus: record.syncStatus || 'pending',
+    version: record.version || 1,
     ...record
   };
 

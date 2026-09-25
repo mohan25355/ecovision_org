@@ -16,12 +16,27 @@ import DigitalTwinPage from "./pages/DigitalTwinPage";
 import EcoSensePage from "./pages/EcoSensePage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import EcoCarePage from "./pages/EcoCarePage";
+import EcoKnowledgePage from "./pages/EcoKnowledgePage";
+import EcoKnowledgeDetailPage from "./pages/EcoKnowledgeDetailPage";
 import NotFound from "./pages/NotFound";
+
+import { useEffect } from "react";
+import { checkOllamaStatus } from "@/lib/ollama";
+import { networkStateEngine } from "@/services/networkState";
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
+const App = () => {
+  useEffect(() => {
+    // Non-blocking background health checks on app startup
+    setTimeout(() => {
+      networkStateEngine.checkConnectivity();
+      checkOllamaStatus();
+    }, 100);
+  }, []);
+
+  return (
+    <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
       <Sonner />
@@ -33,6 +48,8 @@ const App = () => (
           <Route path="/my-plants" element={<MyPlantsPage />} />
           <Route path="/my-plants/:id" element={<PlantDetailPage />} />
           <Route path="/history" element={<HistoryPage />} />
+          <Route path="/eco-knowledge" element={<EcoKnowledgePage />} />
+          <Route path="/eco-knowledge/:id" element={<EcoKnowledgeDetailPage />} />
           <Route path="/ecobot" element={<EcoBotPage />} />
           <Route path="/rewards" element={<RewardsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
@@ -46,6 +63,7 @@ const App = () => (
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
-);
+  );
+};
 
 export default App;

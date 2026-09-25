@@ -1,4 +1,7 @@
-export type NetworkStatusType = 'ONLINE' | 'OFFLINE' | 'SYNCING' | 'LOCAL_AI' | 'ERROR';
+// Real Connectivity State Machine & Network Manager for EcoVision AI
+// Manages: ONLINE | LOCAL_AI | OFFLINE | SYNCING | ERROR
+
+export type NetworkStatusType = 'ONLINE' | 'LOCAL_AI' | 'OFFLINE' | 'SYNCING' | 'ERROR';
 
 export interface NetworkStateInfo {
   status: NetworkStatusType;
@@ -17,71 +20,114 @@ class NetworkStateEngine {
   private isSyncing: boolean = false;
   private listeners: Set<Listener> = new Set();
   private pingInterval: any = null;
+  private isProbing: boolean = false;
 
   constructor() {
     this.init();
   }
 
   private init() {
-    window.addEventListener('online', () => this.checkConnectivity());
-    window.addEventListener('offline', () => this.setOffline());
+    window.addEventListener('online', () => this.probeConnectivity());
+    window.addEventListener('offline', () => this.setOfflineState());
 
-    // Initial check
-    this.checkConnectivity();
+    // Initial probe on app startup (non-blocking)
+    setTimeout(() => this.probeConnectivity(), 100);
 
-    // Periodic ping every 30 seconds
+    // Periodic lightweight background probe every 30 seconds
     this.pingInterval = setInterval(() => {
-      this.checkConnectivity();
+      this.probeConnectivity();
     }, 30000);
   }
 
-  public async checkConnectivity(): Promise<NetworkStateInfo> {
-    if (!navigator.onLine) {
-      this.setOffline();
-      return this.getState();
-    }
+  public async probeConnectivity(): Promise<NetworkStateInfo> {
+    if (this.isProbing) return this.getState();
+    this.isProbing = true;
 
     try {
-      // Lightweight fetch check to verify actual internet connectivity
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
-      
-      const res = await fetch('/manifest.json?ping=' + Date.now(), { 
-        method: 'HEAD', 
-        signal: controller.signal 
-      });
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        this.isOnline = true;
-        if (this.status !== 'SYNCING') {
-          this.status = this.isLocalAiAvailable ? 'LOCAL_AI' : 'ONLINE';
-        }
+      // 1. Check browser navigator hint first
+      if (!navigator.onLine) {
+        this.isOnline = false;
       } else {
-        this.setOffline();
+        // 2. Perform real external internet probe to distinguish true Internet vs Local preview/cache
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+
+        try {
+          // Probe lightweight external endpoint
+          const res = await fetch('https://cloudflare.com/cdn-cgi/trace?ping=' + Date.now(), {
+            method: 'GET',
+            mode: 'no-cors',
+            cache: 'no-store',
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+          this.isOnline = true;
+        } catch {
+          // External probe failed -> Internet is unavailable
+          this.isOnline = false;
+        }
       }
-    } catch {
-      this.setOffline();
+
+      // 3. Probe Ollama Local AI Server (http://localhost:11434/api/tags)
+      const ollamaController = new AbortController();
+      const ollamaTimeout = setTimeout(() => ollamaController.abort(), 1500);
+
+      try {
+        const ollamaRes = await fetch('http://localhost:11434/api/tags', {
+          method: 'GET',
+          signal: ollamaController.signal
+        });
+        clearTimeout(ollamaTimeout);
+        this.isLocalAiAvailable = ollamaRes.ok;
+      } catch {
+        this.isLocalAiAvailable = false;
+      }
+
+      // 4. Update status based on strict state machine hierarchy
+      if (this.isSyncing) {
+        this.status = 'SYNCING';
+      } else if (this.isOnline) {
+        this.status = 'ONLINE';
+      } else if (this.isLocalAiAvailable) {
+        this.status = 'LOCAL_AI';
+      } else {
+        this.status = 'OFFLINE';
+      }
+    } catch (err) {
+      console.warn('[NetworkManager] Probe error:', err);
+      if (!this.isOnline && !this.isLocalAiAvailable) {
+        this.status = 'OFFLINE';
+      }
+    } finally {
+      this.isProbing = false;
+      this.notify();
     }
 
-    this.notify();
     return this.getState();
   }
 
-  private setOffline() {
+  private setOfflineState() {
     this.isOnline = false;
-    if (this.status !== 'SYNCING') {
-      this.status = this.isLocalAiAvailable ? 'LOCAL_AI' : 'OFFLINE';
+    if (this.isSyncing) {
+      this.status = 'SYNCING';
+    } else if (this.isLocalAiAvailable) {
+      this.status = 'LOCAL_AI';
+    } else {
+      this.status = 'OFFLINE';
     }
     this.notify();
   }
 
   public setLocalAiAvailable(available: boolean) {
     this.isLocalAiAvailable = available;
-    if (!this.isOnline && available) {
-      this.status = 'LOCAL_AI';
-    } else if (this.isOnline && available && this.status === 'LOCAL_AI') {
-      this.status = 'ONLINE';
+    if (!this.isSyncing) {
+      if (this.isOnline) {
+        this.status = 'ONLINE';
+      } else if (available) {
+        this.status = 'LOCAL_AI';
+      } else {
+        this.status = 'OFFLINE';
+      }
     }
     this.notify();
   }
@@ -91,8 +137,19 @@ class NetworkStateEngine {
     if (syncing) {
       this.status = 'SYNCING';
     } else {
-      this.status = this.isOnline ? (this.isLocalAiAvailable ? 'LOCAL_AI' : 'ONLINE') : (this.isLocalAiAvailable ? 'LOCAL_AI' : 'OFFLINE');
+      if (this.isOnline) {
+        this.status = 'ONLINE';
+      } else if (this.isLocalAiAvailable) {
+        this.status = 'LOCAL_AI';
+      } else {
+        this.status = 'OFFLINE';
+      }
     }
+    this.notify();
+  }
+
+  public setError() {
+    this.status = 'ERROR';
     this.notify();
   }
 

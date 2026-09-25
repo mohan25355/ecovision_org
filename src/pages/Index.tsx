@@ -1,178 +1,257 @@
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Link } from "react-router-dom";
-import { Camera, Leaf, Sparkles, Bot, BookOpen, ArrowRight, ScanLine, Shield, Zap } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { 
+  Camera, Leaf, Sparkles, Bot, BookOpen, ArrowRight, 
+  ScanLine, Shield, Zap, Plus, BookMarked, Activity, CheckCircle2, AlertCircle 
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TopHeader, BottomNav } from "@/components/Navigation";
-
-const features = [
-  {
-    icon: ScanLine,
-    title: "AI Leaf Scanner",
-    description: "Advanced image recognition identifies plants from any leaf photo"
-  },
-  {
-    icon: Sparkles,
-    title: "Detailed Insights",
-    description: "Get botanical info, medicinal uses, and growing conditions"
-  },
-  {
-    icon: Bot,
-    title: "EcoBot Assistant",
-    description: "Ask questions and learn from our AI plant expert"
-  },
-  {
-    icon: Shield,
-    title: "Safety Warnings",
-    description: "Know if a plant is toxic, edible, or pet-safe"
-  }
-];
+import { getAllRecords, getPendingRecords, PlantRecord, PlantActivity } from "@/lib/db";
+import { PRESEEDED_BOTANICAL_KNOWLEDGE } from "@/services/ecoKnowledgeEngine";
+import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 
 const Index = () => {
+  const navigate = useNavigate();
+  const netState = useNetworkStatus();
+
+  const [plants, setPlants] = useState<PlantRecord[]>([]);
+  const [recentActivities, setRecentActivities] = useState<PlantActivity[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [speciesCount, setSpeciesCount] = useState(PRESEEDED_BOTANICAL_KNOWLEDGE.length);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
+
+  const loadDashboardData = async () => {
+    try {
+      const userPlants = await getAllRecords<PlantRecord>("plants");
+      setPlants(userPlants.filter(p => !p.isArchived));
+
+      const activities = await getAllRecords<PlantActivity>("pending_actions");
+      setRecentActivities(activities.slice(-4).reverse());
+
+      const pending = await getPendingRecords("pending_actions");
+      setPendingCount(pending.length);
+
+      const dbKnowledge = await getAllRecords("plant_knowledge");
+      const totalCount = new Set([...PRESEEDED_BOTANICAL_KNOWLEDGE.map(p => p.id), ...dbKnowledge.map(p => p.id)]).size;
+      setSpeciesCount(totalCount);
+    } catch (err) {
+      console.warn("Dashboard load error:", err);
+    }
+  };
+
+  const healthyCount = plants.filter(p => p.healthScore >= 85).length;
+  const attentionCount = plants.filter(p => p.healthScore < 85).length;
+  const averageHealth = plants.length > 0 
+    ? Math.round(plants.reduce((acc, p) => acc + (p.healthScore || 90), 0) / plants.length)
+    : 94;
+
+  const randomSpotlightSpecies = PRESEEDED_BOTANICAL_KNOWLEDGE[0];
+
   return (
     <div className="min-h-screen bg-background">
       <TopHeader />
       
-      <main className="pb-24">
-        {/* Hero Section */}
-        <section className="relative overflow-hidden">
-          <div className="leaf-pattern absolute inset-0" />
-          <div className="absolute inset-0 bg-gradient-to-b from-eco-mint/30 via-transparent to-background" />
+      <main className="pb-28 max-w-4xl mx-auto px-4 py-6 space-y-6">
+        {/* Dynamic Hero Section (Part 19) */}
+        <section className="relative overflow-hidden rounded-3xl bg-card border border-border/50 p-6 md:p-8 shadow-sm">
+          <div className="leaf-pattern absolute inset-0 opacity-15" />
+          <div className="absolute inset-0 bg-gradient-to-br from-eco-mint/40 via-transparent to-background/50" />
           
-          <div className="relative container px-4 pt-12 pb-16">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
-              className="text-center space-y-6"
-            >
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring", bounce: 0.5, delay: 0.2 }}
-                className="inline-flex p-4 rounded-full bg-eco-mint/50 mb-4"
-              >
-                <Leaf className="h-12 w-12 text-eco-leaf" />
-              </motion.div>
-              
-              <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-                <span className="text-eco-gradient">EcoVision</span>
-              </h1>
-              
-              <p className="text-xl text-muted-foreground max-w-md mx-auto">
-                AI-powered plant identification from a single leaf photo
-              </p>
-              
-              <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
-                <Link to="/scan">
-                  <Button variant="eco" size="xl" className="w-full sm:w-auto">
-                    <Camera className="h-5 w-5 mr-2" />
-                    Start Scanning
-                  </Button>
-                </Link>
-                <Link to="/ecobot">
-                  <Button variant="eco-outline" size="xl" className="w-full sm:w-auto">
-                    <Bot className="h-5 w-5 mr-2" />
-                    Ask EcoBot
-                  </Button>
-                </Link>
+          <div className="relative space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-eco-mint/60 text-eco-leaf text-xs font-bold">
+                <Leaf className="h-3.5 w-3.5" />
+                <span>ECOVISION AI PLATFORM</span>
               </div>
-            </motion.div>
-          </div>
-        </section>
 
-        {/* Features Grid */}
-        <section className="container px-4 py-12">
-          <motion.h2
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            viewport={{ once: true }}
-            className="text-2xl font-bold text-center mb-8"
-          >
-            Discover the Power of AI Botany
-          </motion.h2>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {features.map((feature, index) => (
-              <motion.div
-                key={feature.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.1 }}
-              >
-                <Card variant="nature" className="h-full nature-card">
-                  <CardContent className="p-6 flex gap-4">
-                    <div className="p-3 rounded-xl bg-eco-mint/50 h-fit">
-                      <feature.icon className="h-6 w-6 text-eco-leaf" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-foreground mb-1">{feature.title}</h3>
-                      <p className="text-sm text-muted-foreground">{feature.description}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
-          </div>
-        </section>
-
-        {/* Quick Actions */}
-        <section className="container px-4 py-8">
-          <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
-          
-          <div className="grid grid-cols-2 gap-4">
-            <Link to="/my-plants">
-              <Card variant="glass" className="nature-card p-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-eco-mint/50">
-                    <BookOpen className="h-5 w-5 text-eco-leaf" />
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-sm">My Plants</h3>
-                    <p className="text-xs text-muted-foreground">View collection</p>
-                  </div>
-                </div>
-              </Card>
-            </Link>
-            
-            <Link to="/history">
-              <Card variant="glass" className="nature-card p-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-eco-mint/50">
-                    <Zap className="h-5 w-5 text-eco-leaf" />
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-sm">Recent Scans</h3>
-                    <p className="text-xs text-muted-foreground">View history</p>
-                  </div>
-                </div>
-              </Card>
-            </Link>
-          </div>
-        </section>
-
-        {/* CTA */}
-        <section className="container px-4 py-8">
-          <Card variant="eco" className="overflow-hidden">
-            <div className="relative p-6">
-              <div className="leaf-pattern absolute inset-0 opacity-20" />
-              <div className="relative flex items-center justify-between">
-                <div className="space-y-2">
-                  <h3 className="text-lg font-bold">Ready to explore?</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Scan your first leaf now
-                  </p>
-                </div>
-                <Link to="/scan">
-                  <Button variant="eco" size="icon-lg">
-                    <ArrowRight className="h-6 w-6" />
-                  </Button>
-                </Link>
+              <div className="text-xs font-semibold text-muted-foreground">
+                {netState.isOnline ? "● Cloud Active" : "● Offline Local Mode"}
               </div>
             </div>
+
+            <div>
+              <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground">
+                Good day, <span className="text-eco-gradient">Plant Guardian</span>
+              </h1>
+              <p className="text-sm md:text-base text-muted-foreground mt-1">
+                Your personal digital garden & botanical intelligence platform is ready.
+              </p>
+            </div>
+
+            {/* Garden Health Overview Stats */}
+            <div className="grid grid-cols-3 gap-3 pt-2">
+              <div className="p-3 rounded-2xl bg-background/80 border border-border/50 text-center">
+                <p className="text-[10px] font-bold text-muted-foreground">GARDEN HEALTH</p>
+                <p className="text-xl font-extrabold text-eco-success">{averageHealth}%</p>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-background/80 border border-border/50 text-center">
+                <p className="text-[10px] font-bold text-muted-foreground">TOTAL PLANTS</p>
+                <p className="text-xl font-extrabold text-foreground">{plants.length}</p>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-background/80 border border-border/50 text-center">
+                <p className="text-[10px] font-bold text-muted-foreground">NEEDS ATTENTION</p>
+                <p className={`text-xl font-extrabold ${attentionCount > 0 ? "text-amber-500" : "text-muted-foreground"}`}>
+                  {attentionCount}
+                </p>
+              </div>
+            </div>
+
+            {/* Hero CTAs */}
+            <div className="flex flex-wrap gap-3 pt-2">
+              <Link to="/scan">
+                <Button variant="eco" size="lg" className="rounded-xl shadow-md">
+                  <Camera className="h-4 w-4 mr-2" />
+                  📸 Scan a Plant
+                </Button>
+              </Link>
+              <Link to="/my-plants">
+                <Button variant="eco-outline" size="lg" className="rounded-xl">
+                  <Plus className="h-4 w-4 mr-1.5" />
+                  + Add Plant
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        {/* Knowledge Spotlight Card */}
+        <section>
+          <Card variant="glass" className="overflow-hidden hover:border-eco-leaf/50 transition-all">
+            <CardContent className="p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-eco-mint/50">
+                  <BookMarked className="h-6 w-6 text-eco-leaf" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-base text-foreground">Learn Something New</h3>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-semibold">Botanical Knowledge</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Explore {speciesCount}+ cached species: {randomSpotlightSpecies?.commonNames[0]} (*{randomSpotlightSpecies?.scientificName}*)
+                  </p>
+                </div>
+              </div>
+
+              <Link to="/eco-knowledge">
+                <Button variant="eco-glass" size="sm" className="rounded-xl text-xs whitespace-nowrap">
+                  Explore Knowledge <ArrowRight className="h-4 w-4 ml-1.5" />
+                </Button>
+              </Link>
+            </CardContent>
           </Card>
         </section>
+
+        {/* Personal Digital Garden Section */}
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold flex items-center gap-2">
+              <BookOpen className="h-5 w-5 text-eco-leaf" /> My Digital Garden
+            </h2>
+            <Link to="/my-plants" className="text-xs text-eco-leaf font-semibold hover:underline">
+              View All ({plants.length}) →
+            </Link>
+          </div>
+
+          {plants.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {plants.slice(0, 3).map((plant) => (
+                <Card 
+                  key={plant.id} 
+                  variant="glass" 
+                  onClick={() => navigate(`/my-plants/${plant.id}`)}
+                  className="cursor-pointer overflow-hidden hover:border-eco-leaf/50 transition-all"
+                >
+                  <div className="h-32 relative overflow-hidden">
+                    <img src={plant.image} alt={plant.nickname} className="w-full h-full object-cover" />
+                    <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full text-[10px] font-bold bg-black/60 text-white backdrop-blur-sm">
+                      {plant.healthScore}%
+                    </div>
+                  </div>
+                  <CardContent className="p-3">
+                    <h4 className="font-bold text-sm text-foreground truncate">{plant.nickname}</h4>
+                    <p className="text-xs text-eco-leaf">{plant.commonName}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <Card variant="glass" className="text-center py-8">
+              <CardContent className="space-y-3">
+                <p className="text-sm font-semibold">Your garden is waiting.</p>
+                <p className="text-xs text-muted-foreground">Add your first plant to start monitoring growth and care history.</p>
+                <Link to="/my-plants">
+                  <Button variant="eco" size="sm" className="rounded-xl text-xs">
+                    Add Your First Plant
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          )}
+        </section>
+
+        {/* Feature Tools Grid */}
+        <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Link to="/scan">
+            <Card variant="nature" className="p-4 nature-card h-full">
+              <ScanLine className="h-5 w-5 text-eco-leaf mb-2" />
+              <h3 className="font-bold text-xs text-foreground">AI Leaf Scan</h3>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Instant disease diagnosis</p>
+            </Card>
+          </Link>
+
+          <Link to="/ecobot">
+            <Card variant="nature" className="p-4 nature-card h-full">
+              <Bot className="h-5 w-5 text-purple-400 mb-2" />
+              <h3 className="font-bold text-xs text-foreground">EcoBot AI</h3>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Offline assistant</p>
+            </Card>
+          </Link>
+
+          <Link to="/digital-twin">
+            <Card variant="nature" className="p-4 nature-card h-full">
+              <Activity className="h-5 w-5 text-blue-400 mb-2" />
+              <h3 className="font-bold text-xs text-foreground">Digital Twin</h3>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Plant life simulation</p>
+            </Card>
+          </Link>
+
+          <Link to="/analytics">
+            <Card variant="nature" className="p-4 nature-card h-full">
+              <Zap className="h-5 w-5 text-amber-400 mb-2" />
+              <h3 className="font-bold text-xs text-foreground">Analytics</h3>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Garden metrics</p>
+            </Card>
+          </Link>
+        </section>
+
+        {/* Recent Activity Feed */}
+        {recentActivities.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="text-sm font-bold text-muted-foreground">Recent Care Activity</h2>
+            <div className="space-y-2">
+              {recentActivities.map((act) => (
+                <Card key={act.id} variant="glass" className="p-3 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-4 w-4 text-eco-success flex-shrink-0" />
+                    <div>
+                      <p className="font-semibold text-foreground">{act.title}</p>
+                      {act.description && <p className="text-[11px] text-muted-foreground">{act.description}</p>}
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">{new Date(act.createdAt).toLocaleDateString()}</span>
+                </Card>
+              ))}
+            </div>
+          </section>
+        )}
       </main>
       
       <BottomNav />
