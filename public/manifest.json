@@ -1,0 +1,17 @@
+{
+  "short_name": "EcoVision",
+  "name": "EcoVision AI - Plant Intelligence Platform",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0d1a12",
+  "theme_color": "#1b4d2e",
+  "display": "standalone",
+  "orientation": "portrait",
+  "description": "Offline-First AI-Powered Plant Intelligence & Learning Platform"
+}

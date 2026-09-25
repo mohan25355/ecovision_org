@@ -1,0 +1,7 @@
+project_id = "fopokhoxagcrjdjengim"
+
+[functions.identify-plant]
+verify_jwt = false
+
+[functions.ecobot-chat]
+verify_jwt = false
